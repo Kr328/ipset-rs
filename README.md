@@ -1,6 +1,6 @@
 # ipset-rs
 
-A compact ipset implement for Rust.
+A compact ipset implement in Rust.
 
 ## Feature
 
