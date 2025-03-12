@@ -8,19 +8,14 @@ use std::{
 mod tests;
 
 fn write_varint(bytes: &mut Vec<u8>, mut v: usize) -> usize {
-    if v == 0 {
-        bytes.push(0);
-        return 1;
-    }
-
     let mut len = 0;
-    while v > 0 {
-        let b = if v > 0x7f { (v & 0x7f) | 0x80 } else { v };
-        bytes.push(b as u8);
+    while v > 0x7f {
+        bytes.push(((v & 0x7f) | 0x80) as u8);
         v >>= 7;
         len += 1;
     }
-    len
+    bytes.push(v as u8);
+    len + 1
 }
 
 fn read_varint(bytes: &[u8]) -> (usize, usize) {
