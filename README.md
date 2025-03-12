@@ -4,12 +4,12 @@ A compact ipset implement in Rust.
 
 ## Feature
 
-* Small memory footprint
-* O(1) query time
+* Small memory footprint.
+* O(1) query time.
 
 ## Limit
 
-* Only 'contains' operate is supported
+* Only 'contains' operate is supported.
 
 ## Example
 
