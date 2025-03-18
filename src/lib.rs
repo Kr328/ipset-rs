@@ -47,7 +47,7 @@ impl<const BITS: usize> IpSet<BITS> {
     }
 
     #[inline]
-    fn contains_with(&self, bits: impl IntoIterator<Item = bool>) -> bool {
+    pub fn contains_with(&self, bits: impl IntoIterator<Item = bool>) -> bool {
         let mut bits = bits.into_iter().take(BITS);
 
         let mut offset = 0;
@@ -126,7 +126,7 @@ impl<const BITS: usize> IpSetBuilder<BITS> {
     }
 
     #[inline]
-    fn add_with(&mut self, bits: impl IntoIterator<Item = bool>) {
+    pub fn add_with(&mut self, bits: impl IntoIterator<Item = bool>) {
         let mut bits = bits.into_iter().take(BITS);
 
         let mut node = self.root.clone();
