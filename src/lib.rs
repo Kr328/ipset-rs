@@ -1,8 +1,4 @@
-use std::{
-    cell::RefCell,
-    net::{Ipv4Addr, Ipv6Addr},
-    rc::Rc,
-};
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 #[cfg(test)]
 mod tests;
@@ -100,39 +96,36 @@ impl<const BITS: usize> IpSet<BITS> {
 #[derive(PartialEq)]
 enum Node {
     Matched,
-    Building { left: Option<NodeRef>, right: Option<NodeRef> },
+    Building {
+        left: Option<Box<Node>>,
+        right: Option<Box<Node>>,
+    },
 }
 
-type NodeRef = Rc<RefCell<Node>>;
-
 impl Node {
-    fn new_empty_ref() -> NodeRef {
-        Rc::new(RefCell::new(Node::Building { left: None, right: None }))
-    }
+    const EMPTY: Node = Node::Building { left: None, right: None };
 }
 
 pub type IpSetBuilderV4 = IpSetBuilder<32>;
 pub type IpSetBuilderV6 = IpSetBuilder<128>;
 
 pub struct IpSetBuilder<const BITS: usize> {
-    root: NodeRef,
+    root: Node,
 }
 
 impl<const BITS: usize> IpSetBuilder<BITS> {
     fn new() -> Self {
-        Self {
-            root: Node::new_empty_ref(),
-        }
+        Self { root: Node::EMPTY }
     }
 
     #[inline]
     pub fn add_with(&mut self, bits: impl IntoIterator<Item = bool>) {
         let mut bits = bits.into_iter().take(BITS);
 
-        let mut node = self.root.clone();
+        let mut node = &mut self.root;
 
         while let Some(next_node) = bits.next() {
-            let next_node = match &mut *node.borrow_mut() {
+            let next_node = match node {
                 Node::Matched => return,
                 Node::Building { left, right } => {
                     let next_node = match next_node {
@@ -141,15 +134,15 @@ impl<const BITS: usize> IpSetBuilder<BITS> {
                     };
 
                     match next_node {
-                        None => next_node.insert(Node::new_empty_ref()).clone(),
-                        Some(r) => r.clone(),
+                        None => next_node.insert(Box::new(Node::EMPTY)),
+                        Some(r) => r,
                     }
                 }
             };
             node = next_node;
         }
 
-        *node.borrow_mut() = Node::Matched;
+        *node = Node::Matched;
     }
 }
 
@@ -181,12 +174,12 @@ impl IpSetBuilder<32> {
 
 impl<const BITS: usize> IpSetBuilder<BITS> {
     fn build_nodes_ref_index(self) -> Vec<usize> {
-        fn push_node(nodes: &mut Vec<usize>, node_ref: &NodeRef) {
+        fn push_node(nodes: &mut Vec<usize>, node: &Node) {
             let current_node_index = nodes.len();
 
             nodes.extend_from_slice(&[0, 0]);
 
-            match &*node_ref.borrow() {
+            match node {
                 Node::Matched => {}
                 Node::Building { left, right } => {
                     let [left_node_index, right_node_index] = [left, right].map(|r| match r {
