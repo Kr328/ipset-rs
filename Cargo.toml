@@ -1,17 +1,27 @@
 [package]
 name = "compact-ipset"
-version = "0.2.1"
+version = "1.0.0"
 edition = "2024"
+rust-version = "1.85"
+authors = ["Kr328"]
+description = "Compact, immutable IPv4 and IPv6 prefix sets with fast membership queries"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/Kr328/ipset-rs"
+documentation = "https://docs.rs/compact-ipset"
+keywords = ["ip", "ipset", "cidr", "ipv4", "ipv6"]
+categories = ["data-structures", "network-programming"]
+include = ["src/**", "README.md", "LICENSE"]
 
 [features]
-trace = ["tracing"]
 default = []
+trace = ["dep:tracing"]
 
 [dependencies]
-tracing = { version = "0", optional = true }
+tracing = { version = "0.1", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.13", features = ["http2"] }
-tracing = "0"
+tracing = "0.1"
 tracing-subscriber = "0.3"

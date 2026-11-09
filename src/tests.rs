@@ -1,8 +1,196 @@
-use std::{net::Ipv6Addr, time::Instant};
+use std::{
+    net::Ipv6Addr,
+    panic::{AssertUnwindSafe, catch_unwind},
+    time::Instant,
+};
 
 use tracing_subscriber::fmt::format::FmtSpan;
 
-use crate::{IpSetV4, IpSetV6, read_varint};
+use crate::{IpSet, IpSetV4, IpSetV6, read_varint};
+
+#[test]
+fn test_empty_ipsets() {
+    let v4 = IpSetV4::builder().build();
+    for addr in ["0.0.0.0", "127.0.0.1", "1.2.3.4", "255.255.255.255"] {
+        assert!(!v4.contains(addr.parse().unwrap()), "{addr}");
+    }
+    assert!(catch_unwind(|| v4.contains_with([])).is_err());
+    assert!(!v4.contains_with([false; 32]));
+    assert!(!v4.contains_with([true; 32]));
+
+    let v6 = IpSetV6::builder().build();
+    for addr in ["::", "::1", "2001:db8::1", "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"] {
+        assert!(!v6.contains(addr.parse().unwrap()), "{addr}");
+    }
+    assert!(catch_unwind(|| v6.contains_with([])).is_err());
+    assert!(!v6.contains_with([false; 128]));
+    assert!(!v6.contains_with([true; 128]));
+}
+
+#[test]
+fn test_default_routes_and_empty_prefix() {
+    for use_add_with in [false, true] {
+        let mut v4 = IpSetV4::builder();
+        let mut v6 = IpSetV6::builder();
+        if use_add_with {
+            v4.add_with([]);
+            v6.add_with([]);
+        } else {
+            v4.add("0.0.0.0".parse().unwrap(), 0);
+            v6.add("::".parse().unwrap(), 0);
+        }
+
+        let v4 = v4.build();
+        for addr in ["0.0.0.0", "127.0.0.1", "1.2.3.4", "255.255.255.255"] {
+            assert!(v4.contains(addr.parse().unwrap()), "{addr}, use_add_with={use_add_with}");
+        }
+        assert!(catch_unwind(|| v4.contains_with([])).is_err());
+        assert!(v4.contains_with([false; 32]));
+        assert!(v4.contains_with([true; 32]));
+
+        let v6 = v6.build();
+        for addr in ["::", "::1", "2001:db8::1", "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"] {
+            assert!(v6.contains(addr.parse().unwrap()), "{addr}, use_add_with={use_add_with}");
+        }
+        assert!(catch_unwind(|| v6.contains_with([])).is_err());
+        assert!(v6.contains_with([false; 128]));
+        assert!(v6.contains_with([true; 128]));
+    }
+}
+
+#[test]
+fn test_zero_bit_ipset() {
+    for matched in [false, true] {
+        let mut builder = IpSet::<0>::builder();
+        if matched {
+            builder.add_with([]);
+        }
+        let set = builder.build();
+        assert_eq!(set.contains_with([]), matched);
+        assert_eq!(set.contains_with(std::iter::from_fn(|| None)), matched);
+        assert!(catch_unwind(|| set.contains_with([false])).is_err());
+        assert!(catch_unwind(|| set.contains_with(std::iter::from_fn(|| Some(false)))).is_err());
+    }
+}
+
+#[test]
+fn test_max_bit_ipset() {
+    let mut builder = IpSet::<255>::builder();
+    builder.add_with([false; 255]);
+    let set = builder.build();
+
+    let mut other = [false; 255];
+    other[254] = true;
+    assert!(!set.contains_with(other));
+
+    for len in [254, 255, 256] {
+        for unknown_size in [false, true] {
+            let result = catch_unwind(|| {
+                let mut bits = (0..len).map(|_| false);
+                if unknown_size {
+                    set.contains_with(std::iter::from_fn(move || bits.next()))
+                } else {
+                    set.contains_with(bits)
+                }
+            });
+            if len == 255 {
+                assert!(result.unwrap(), "unknown_size={unknown_size}");
+            } else {
+                assert!(result.is_err(), "len={len}, unknown_size={unknown_size}");
+            }
+        }
+    }
+}
+
+#[test]
+fn test_contains_with_bit_lengths() {
+    let cases: [(&str, Option<&[bool]>, bool); 5] = [
+        ("empty", None, false),
+        ("full", Some(&[]), true),
+        ("prefix match", Some(&[false, false]), true),
+        ("prefix miss", Some(&[true]), false),
+        ("leaf match", Some(&[false; 8]), true),
+    ];
+    for (name, prefix, expected) in cases {
+        let mut builder = IpSet::<8>::builder();
+        if let Some(prefix) = prefix {
+            builder.add_with(prefix.iter().copied());
+        }
+        let set = builder.build();
+        for len in [0, 1, 2, 7, 8, 9, 16] {
+            for unknown_size in [false, true] {
+                let result = catch_unwind(|| {
+                    let mut bits = [false; 16][..len].iter().copied();
+                    if unknown_size {
+                        set.contains_with(std::iter::from_fn(move || bits.next()))
+                    } else {
+                        set.contains_with(bits)
+                    }
+                });
+                if len == 8 {
+                    assert_eq!(result.unwrap(), expected, "{name}, unknown_size={unknown_size}");
+                } else {
+                    assert!(result.is_err(), "{name}, len={len}, unknown_size={unknown_size}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn test_contains_with_infinite_iterator_is_bounded() {
+    let mut builder = IpSet::<8>::builder();
+    builder.add_with([]);
+    let set = builder.build();
+    let mut reads = 0;
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        set.contains_with(std::iter::from_fn(|| {
+            reads += 1;
+            assert!(reads <= 9, "read past the first excess bit");
+            Some(false)
+        }))
+    }));
+    assert!(result.is_err());
+    assert_eq!(reads, 9);
+}
+
+#[test]
+fn test_contains_with_stops_at_first_none() {
+    let mut builder = IpSet::<8>::builder();
+    builder.add_with([false; 8]);
+    let set = builder.build();
+    for len in [3, 8] {
+        let mut reads = 0;
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            set.contains_with(std::iter::from_fn(|| {
+                reads += 1;
+                if reads == len + 1 { None } else { Some(false) }
+            }))
+        }));
+        assert_eq!(reads, len + 1);
+        if len == 8 {
+            assert!(result.unwrap());
+        } else {
+            assert!(result.is_err());
+        }
+    }
+}
+
+#[test]
+fn test_contains_with_known_length_can_return_early() {
+    let set = IpSet::<8>::builder().build();
+    let mut reads = 0;
+    let bits = [false; 8].into_iter().inspect(|_| reads += 1);
+    assert!(!set.contains_with(bits));
+    assert_eq!(reads, 0);
+
+    let mut builder = IpSet::<8>::builder();
+    builder.add_with([]);
+    let set = builder.build();
+    let bits = [false; 8].into_iter().inspect(|_| reads += 1);
+    assert!(set.contains_with(bits));
+    assert!(reads < 8);
+}
 
 #[test]
 fn test_simple_ipset() {
