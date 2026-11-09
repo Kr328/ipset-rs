@@ -1,8 +1,5 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
 
-#[cfg(test)]
-mod tests;
-
 fn write_varint(bytes: &mut Vec<u8>, mut v: usize) -> usize {
     let mut len = 0;
     while v > 0x7f {
@@ -261,3 +258,6 @@ impl<const BITS: usize> IpSetBuilder<BITS> {
         IpSet { nodes: bytes }
     }
 }
+
+#[cfg(test)]
+mod tests;
